@@ -1,0 +1,24 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.0",
+    "fastapi[standard]>=0.141.1",
+    "langchain>=1.4.0",
+    "langchain-community>=0.4.2",
+    "langchain-openai>=1.6.2",
+    "langchain-pinecone>=0.2.13",
+    "psycopg2-binary>=2.9.13",
+    "psycopg[binary]>=3.3.5",
+    "pwdlib[argon2]>=0.3.1",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "pyjwt>=2.14.0",
+    "pypdf>=6.18.1",
+    "python-multipart>=0.0.32",
+    "sqlalchemy>=2.0.52",
+    "uvicorn[standard]>=0.52.4",
+]
