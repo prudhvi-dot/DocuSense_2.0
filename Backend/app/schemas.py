@@ -1,4 +1,5 @@
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from datetime import datetime
 
 
 class UserBase(BaseModel):
@@ -13,3 +14,18 @@ class UserCreate(UserBase):
 class UserPrivate(UserBase):
     model_config = ConfigDict(from_attributes=True)
     id: str
+
+
+class DocumentUploadResponse(BaseModel):
+    document_id: str
+    status: str
+
+
+class DocumentDetailResponse(BaseModel):
+    id: str
+    title: str
+    file_url: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
