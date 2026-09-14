@@ -8,7 +8,9 @@ from pinecone import Pinecone
 
 @lru_cache
 def get_embedding_model():
-    return OpenAIEmbeddings(model="text-embedding-3-small")
+    return OpenAIEmbeddings(
+        model="text-embedding-3-small", api_key=settings.OPENAI_API_KEY
+    )
 
 
 @lru_cache

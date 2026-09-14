@@ -53,10 +53,24 @@ def upload_document(
         user_id=current_user.id,
     )
     db.add(document)
+    db.flush()
+
+    chat = models.Chat(document_id=document.id)
+    db.add(chat)
     db.commit()
     db.refresh(document)
 
-    return {"document_id": document.id, "status": "success"}
+    return {"document_id": document.id, "status": "success", "title": document.title}
+
+
+@router.get(
+    "/all", response_model=list[DocumentDetailResponse], status_code=status.HTTP_200_OK
+)
+def get_all_documents(
+    db: Annotated[Session, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    return current_user.documents
 
 
 @router.get("/{doc_id}", response_model=DocumentDetailResponse)
@@ -81,4 +95,10 @@ def get_document(
             detail="you are not Authorized to access this document",
         )
 
-    return document
+    return DocumentDetailResponse(
+        id=document.id,
+        title=document.title,
+        file_url=document.file_url,
+        created_at=document.created_at,
+        chat_id=document.chat.id,
+    )

@@ -1,5 +1,6 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserBase(BaseModel):
@@ -19,6 +20,7 @@ class UserPrivate(UserBase):
 class DocumentUploadResponse(BaseModel):
     document_id: str
     status: str
+    title: str
 
 
 class DocumentDetailResponse(BaseModel):
@@ -26,6 +28,16 @@ class DocumentDetailResponse(BaseModel):
     title: str
     file_url: str
     created_at: datetime
+    chat_id: str
 
     class Config:
         from_attributes = True
+
+
+class ChatMessageRequest(BaseModel):
+    doc_id: str
+    question: str
+
+
+# class DocumentsResponse(DocumentUploadResponse):
+#     documents: list[DocumentUploadResponse]
