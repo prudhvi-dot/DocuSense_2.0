@@ -70,7 +70,16 @@ def get_all_documents(
     db: Annotated[Session, Depends(get_db)],
     current_user: CurrentUser,
 ):
-    return current_user.documents
+    return [
+        DocumentDetailResponse(
+            id=doc.id,
+            title=doc.title,
+            file_url=doc.file_url,
+            created_at=doc.created_at,
+            chat_id=doc.chat.id,
+        )
+        for doc in current_user.documents
+    ]
 
 
 @router.get("/{doc_id}", response_model=DocumentDetailResponse)

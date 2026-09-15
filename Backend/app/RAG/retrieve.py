@@ -356,12 +356,6 @@ def refine(state: State):
 #     return {"strips": strips, "kept_strips": kept, "refined_context": refined_context}
 
 
-def route_after_refine(state: State) -> Literal["generate", "no_answer_found"]:
-    if not state["refined_context"].strip():
-        return "no_answer_found"
-    return "generate"
-
-
 rag_generation_prompt = ChatPromptTemplate.from_messages(
     [
         (
@@ -606,7 +600,7 @@ def get_chatbot():
     return g.compile(checkpointer=checkpointer)
     # png = app.get_graph().draw_mermaid_png()
 
-    # with open("graph.png", "wb") as f:
+    # with open("graph2.png", "wb") as f:
     #     f.write(png)
 
 
