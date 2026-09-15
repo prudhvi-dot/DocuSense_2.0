@@ -35,7 +35,7 @@ class DocumentDetailResponse(BaseModel):
 
 
 class ChatMessageRequest(BaseModel):
-    doc_id: str
+    # doc_id: str
     question: str
 
 

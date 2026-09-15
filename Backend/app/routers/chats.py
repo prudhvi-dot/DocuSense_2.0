@@ -17,30 +17,39 @@ from app.schemas import ChatMessageRequest
 router = APIRouter()
 
 
-@router.get("/{chat_id}/get_messages", status_code=status.HTTP_200_OK)
+@router.get("/{doc_id}/get_messages", status_code=status.HTTP_200_OK)
 def get_all_messages(
-    chat_id: str,
+    doc_id: str,
     db: Annotated[Session, Depends(get_db)],
     current_user: CurrentUser,
 ):
 
-    result = db.execute(select(models.Message).where(models.Message.chat_id == chat_id))
-    messages = result.scalars().all()
+    result = db.execute(select(models.Chat).where(models.Chat.doc_id == doc_id))
+    chat = result.scalars().first()
+
+    messages_result = db.execute(
+        select(models.Message).where(models.Message.chat_id == chat.id)
+    )
+    messages = messages_result.scalars().all()
 
     return {"messages": messages}
 
 
-@router.put("/{chat_id}")
+@router.put("/{doc_id}")
 def chat(
     chat: ChatMessageRequest,
-    chat_id: str,
+    doc_id: str,
     db: Annotated[Session, Depends(get_db)],
     current_user: CurrentUser,
 ):
     question = chat.question
-    doc_id = chat.doc_id
 
-    human_message = models.Message(chat_id=chat_id, role="human", message=question)
+    chat_result = db.execute(select(models.Document).where(models.Document == doc_id))
+    fetched_chat = chat_result.scalars().first()
+
+    human_message = models.Message(
+        chat_id=fetched_chat.id, role="human", message=question
+    )
     db.add(human_message)
 
     result = db.execute(select(models.Document).where(models.Document.id == doc_id))
@@ -61,7 +70,7 @@ def chat(
         {"question": question, "messages": [HumanMessage(content=question)]},
         config={
             "configurable": {
-                "thread_id": chat_id,
+                "thread_id": fetched_chat.id,
                 "user_id": current_user.id,
                 "doc_id": doc_id,
             }
@@ -69,7 +78,7 @@ def chat(
     )
 
     ai_message = models.Message(
-        chat_id=chat_id, role="ai", message=result["messages"][-1].content
+        chat_id=fetched_chat.id, role="ai", message=result["messages"][-1].content
     )
     db.add(ai_message)
 
