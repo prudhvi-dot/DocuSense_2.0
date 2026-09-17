@@ -1,10 +1,13 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import PdfView from "@/components/PdfView";
 import Chat from "@/components/Chat";
 
+const BACKEND_URL = "http://127.0.0.1:8000";
+
 async function getDocument(doc_id: string) {
   const cookieStore = await cookies();
-  const res = await fetch(`http://127.0.0.1:8000/api/documents/${doc_id}`, {
+  const res = await fetch(`${BACKEND_URL}/api/documents/${doc_id}`, {
     headers: { Cookie: cookieStore.toString() },
     cache: "no-store",
   });
@@ -12,24 +15,51 @@ async function getDocument(doc_id: string) {
   return res.json();
 }
 
-const page = async ({ params }: { params: Promise<{ id: string }> }) => {
-//   await auth.protect();
+async function getCurrentUser() {
+  const cookieStore = await cookies();
+  const res = await fetch(`${BACKEND_URL}/api/users/me`, {
+    headers: { Cookie: cookieStore.toString() },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
 
+async function getMessages(doc_id: string) {
+  const cookieStore = await cookies();
+  const res = await fetch(`${BACKEND_URL}/api/chats/${doc_id}/get_messages`, {
+    headers: { Cookie: cookieStore.toString() },
+    cache: "no-store",
+  });
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.messages ?? [];   // unwrap the array from the response object
+}
+
+const Page = async ({ params }: { params: Promise<{ id: string }> }) => {
   const { id } = await params;
 
-  const file = await getDocument(id)
+  const [file, messages, user] = await Promise.all([
+    getDocument(id),
+    getMessages(id),
+    getCurrentUser(),
+  ]);
 
-  const url = file?.file_url;
+
+  if (!file || !user) {
+    redirect("/signin");
+  }
+
   return (
-    <div className="grid lg:grid-cols-6 h-full overflow-hidden bg-gray-100">
+    <div className="grid lg:grid-cols-6 min-h-0 h-full overflow-hidden bg-gray-100">
       <div className="col-span-6 lg:col-span-3 overflow-y-auto">
-        <PdfView url={url as string} />
+        <PdfView url={file.file_url} />
       </div>
-      <div className="col-span-6 lg:col-span-3 overflow-y-auto border border-r-2">
-        <Chat id={id} />
+      <div className="col-span-6 lg:col-span-3 min-h-0 overflow-y-auto border border-r-2">
+        <Chat docId={id} initialMessages={messages} userName={user.username} />
       </div>
     </div>
   );
 };
 
-export default page;
+export default Page;

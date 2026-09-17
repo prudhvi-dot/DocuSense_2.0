@@ -25,7 +25,7 @@ export async function Header() {
   const user = await getCurrentUser();
 
   return (
-    <header className="flex items-center justify-between border-b px-6 py-4">
+    <header className="flex sticky top-0 x-10 shrink-0 items-center justify-between border-b px-6 py-4">
       <span className="text-lg font-semibold">DocuSense</span>
 
       {user && (

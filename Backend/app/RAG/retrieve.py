@@ -159,6 +159,9 @@ def retrieve(state: State, config: RunnableConfig):
     doc_id = config["configurable"]["doc_id"]
 
     vector_store = get_vectorstore()
+
+    q = state.get("retrieval_query") or state["question"]
+
     retriever = vector_store.as_retriever(
         search_kwargs={
             "namespace": user_id,
@@ -167,8 +170,9 @@ def retrieve(state: State, config: RunnableConfig):
         }
     )
 
-    q = state.get("retrieval_query") or state["question"]
-    return {"docs": retriever.invoke(q)}
+    docs = retriever.invoke(q)
+
+    return {"docs": docs}
 
 
 class DocEvalScore(BaseModel):
@@ -179,15 +183,31 @@ doc_eval_prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            """You are a strict retrieval evaluator for RAG.\n
-            You will be given ONE retrieved chunk and a question.\n
-            Return a relevance score in  [0.0,1.0].\n
-            - 1.0: chunk alone is sufficient to answer fully/mostly.\n
-            - 0.0: chunk is irrelevant.\n
-            Be conservative with high scores.\n
-            Output JSON only""",
+            """You are a retrieval relevance evaluator for a RAG system.
+
+You will be given ONE retrieved document chunk and a user's question.
+
+Return a relevance score between 0.0 and 1.0.
+
+Scoring:
+- 1.0: highly relevant; contains important information needed to answer the question.
+- 0.7-0.9: clearly relevant and useful.
+- 0.4-0.6: somewhat relevant or contains supporting information.
+- 0.1-0.3: mostly irrelevant.
+- 0.0: completely irrelevant.
+
+Important:
+- Evaluate whether the chunk is RELEVANT to the question.
+- Do NOT require the chunk to answer the entire question by itself.
+- For summary questions, a chunk containing any important part of the document should receive a meaningful relevance score.
+- Be conservative, but do not reject a chunk simply because it contains only part of the information needed.
+
+Return only the structured score.""",
         ),
-        ("human", "Question :{question}\n\n Chunk::\n{chunk}"),
+        (
+            "human",
+            "Question: {question}\n\nChunk:\n{chunk}",
+        ),
     ]
 )
 
@@ -199,9 +219,18 @@ def eval_each_doc_node(state: State):
     docs = state["docs"]
 
     if not docs:
-        return {"good_docs": [], "verdict": "INCORRECT"}
+        return {
+            "good_docs": [],
+            "verdict": "INCORRECT",
+        }
 
-    inputs = [{"question": q, "chunk": doc.page_content} for doc in docs]
+    inputs = [
+        {
+            "question": q,
+            "chunk": doc.page_content,
+        }
+        for doc in docs
+    ]
 
     results = doc_eval_chain.batch(inputs)
 
@@ -209,7 +238,7 @@ def eval_each_doc_node(state: State):
 
     good_docs = [doc for doc, score in zip(docs, scores) if score > LOWER_TH]
 
-    if len(scores) > 0 and all(s <= LOWER_TH for s in scores):
+    if not good_docs:
         return {
             "good_docs": [],
             "verdict": "INCORRECT",
@@ -339,23 +368,6 @@ def refine(state: State):
     return {"refined_context": refined_context}
 
 
-# def refine(state: State):
-#     q = state["question"]
-#     context = "\n\n".join(d.page_content for d in state["good_docs"]).strip()
-#     strips = decompose_to_sentences(context)
-
-#     inputs = [{"question": q, "sentence": strip} for strip in strips]
-
-#     results = filter_chain.batch(inputs)
-
-#     keep_flags = [res.keep for res in results]
-
-#     kept = [strip for strip, keep in zip(strips, keep_flags) if keep]
-#     refined_context = "\n".join(kept).strip()
-
-#     return {"strips": strips, "kept_strips": kept, "refined_context": refined_context}
-
-
 rag_generation_prompt = ChatPromptTemplate.from_messages(
     [
         (
@@ -380,17 +392,15 @@ rag_generation_prompt = ChatPromptTemplate.from_messages(
 
 
 def generate(state: State):
-    messages = state["messages"]
-    print("MESSAGES IN GENERATE:")
-    for message in state["messages"]:
-        print(type(message).__name__, ":", message.content)
+
     out = (rag_generation_prompt | llm).invoke(
         {
             "question": state["question"],
             "refined_context": state["refined_context"],
-            "previous_messages": messages,
+            "previous_messages": state["messages"],
         }
     )
+
     return {
         "answer": out.content,
         "context": state["refined_context"],
@@ -562,6 +572,7 @@ def get_chatbot():
         route_after_decision,
         {"document": "retrieve", "conversation": "conversation_generate"},
     )
+    # g.add_edge(START, "retrieve")
     g.add_edge("retrieve", "eval_each_doc")
     g.add_conditional_edges(
         "eval_each_doc",
