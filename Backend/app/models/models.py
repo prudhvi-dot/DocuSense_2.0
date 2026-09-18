@@ -48,7 +48,10 @@ class Document(Base):
     user: Mapped["User"] = relationship(back_populates="documents")
 
     chat: Mapped["Chat | None"] = relationship(
-        back_populates="document", uselist=False, cascade="all, delete-orphan"
+        back_populates="document",
+        uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
@@ -74,7 +77,7 @@ class Chat(Base):
     document: Mapped["Document"] = relationship(back_populates="chat")
 
     messages: Mapped[list["Message"]] = relationship(
-        back_populates="chat", cascade="all, delete-orphan"
+        back_populates="chat", cascade="all, delete-orphan", passive_deletes=True
     )
 
 

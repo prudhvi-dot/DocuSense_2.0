@@ -143,10 +143,10 @@ const Chat = ({ docId, userName, initialMessages }: ChatProps) => {
                 <p>{msg.message}</p>
 
                 <span className="block text-[10px] mt-1 opacity-60 text-right">
-                  {new Date(msg.created_at).toLocaleTimeString([], {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  {new Date(msg.created_at).toLocaleTimeString("en-US", {
+  hour: "2-digit",
+  minute: "2-digit",
+})}
                 </span>
               </div>
             </div>

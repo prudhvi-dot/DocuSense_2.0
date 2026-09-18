@@ -1,9 +1,10 @@
 import uuid
 from typing import Annotated
-
+import cloudinary.uploader
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import selectinload
 
 from app.auth import (
     CurrentUser,
@@ -13,6 +14,7 @@ from app.config.database import get_db
 from app.models import models
 from app.RAG.ingestion import ingest
 from app.schemas import DocumentDetailResponse, DocumentUploadResponse
+from app.RAG.config import get_pinecone_index
 
 router = APIRouter()
 
@@ -63,13 +65,66 @@ def upload_document(
     return {"document_id": document.id, "status": "success", "title": document.title}
 
 
+@router.delete("/{doc_id}")
+def delete_document(
+    doc_id: str,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: CurrentUser,
+):
+    stmt = select(models.Document).where(
+        models.Document.id == doc_id,
+        models.Document.user_id == current_user.id,
+    )
+
+    document = db.execute(stmt).scalar_one_or_none()
+
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    print("at cloudinary")
+
+    cloudinary.uploader.destroy(
+        document.public_id,
+        resource_type="raw",
+    )
+
+    print("At pinecone")
+
+    index = get_pinecone_index()
+    index.delete(
+        namespace=current_user.id,
+        filter={"doc_id": document.id},
+    )
+
+    db.delete(document)
+    db.commit()
+
+    return {"message": "Document deleted successfully"}
+
+
+import time
+
+
 @router.get(
-    "/all", response_model=list[DocumentDetailResponse], status_code=status.HTTP_200_OK
+    "/all",
+    response_model=list[DocumentDetailResponse],
+    status_code=status.HTTP_200_OK,
 )
 def get_all_documents(
     db: Annotated[Session, Depends(get_db)],
     current_user: CurrentUser,
 ):
+    stmt = (
+        select(models.Document)
+        .options(selectinload(models.Document.chat))
+        .where(models.Document.user_id == current_user.id)
+    )
+
+    documents = db.execute(stmt).scalars().all()
+
     return [
         DocumentDetailResponse(
             id=doc.id,
@@ -78,7 +133,7 @@ def get_all_documents(
             created_at=doc.created_at,
             chat_id=doc.chat.id,
         )
-        for doc in current_user.documents
+        for doc in documents
     ]
 
 

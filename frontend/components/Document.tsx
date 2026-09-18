@@ -1,15 +1,24 @@
 "use client"
 
 import { useRouter } from "next/navigation";
-import { File, Download, Trash2} from "lucide-react";
+import { File, Download, Trash2, Loader2Icon} from "lucide-react";
+import { useEffect, useState } from "react";
 
-interface Doc {
-    id: string;
-    title: string;
-    fileUrl: string;
-}
+type Doc = {
+  id: string;
+  title: string;
+  fileUrl: string;
+};
 
-const Document = ({ doc }: { doc: Doc }) => {
+type DocumentProps = {
+  doc: Doc;
+  onDelete: (doc_id: string) => void;
+  isDeleting: boolean
+};
+
+
+
+const Document = ({ doc, onDelete, isDeleting }: DocumentProps) => {
     const router = useRouter();
 
   return (
@@ -20,8 +29,27 @@ const Document = ({ doc }: { doc: Doc }) => {
       <p onClick={() => router.push(`/dashboard/files/${doc.id}`)} className="hover:text-black text-sm">{doc.title}</p>
       <File onClick={() => router.push(`/dashboard/files/${doc.id}`)} className="h-12 w-12" />
 
-      <div className="flex gap-1 justify-end p-2">       
-        <Download onClick={() => window.open(doc.fileUrl, "_blank")} className="w-26 hover:text-black cursor-pointer"/>
+      <div className="flex gap-1 justify-end p-2">  
+
+        {isDeleting ? (
+    <Loader2Icon className="animate-spin" />
+  ) : (
+    <Trash2 onClick={()=>{
+          onDelete(doc.id)
+        }} className="w-26 hover:text-black cursor-pointer"/>   
+  )} 
+        
+        <Download
+  onClick={() => {
+    const downloadUrl = doc.fileUrl.replace(
+      "/upload/",
+      "/upload/fl_attachment/"
+    );
+
+    window.open(downloadUrl, "_blank");
+  }}
+  className="w-26 hover:text-black cursor-pointer"
+/>
       </div>
     </div>
   );

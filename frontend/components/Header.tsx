@@ -1,6 +1,7 @@
 // components/Header.tsx
 import { cookies } from "next/headers";
 import { LogoutButton } from "./LogoutButton";
+import Link from "next/link";
 
 async function getCurrentUser() {
   const cookieStore = await cookies();
@@ -26,7 +27,9 @@ export async function Header() {
 
   return (
     <header className="flex sticky top-0 x-10 shrink-0 items-center justify-between border-b px-6 py-4">
+      <Link href="/dashboard">
       <span className="text-lg font-semibold">DocuSense</span>
+      </Link>
 
       {user && (
         <div className="flex items-center gap-3">
