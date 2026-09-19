@@ -66,20 +66,29 @@ route_prompt = ChatPromptTemplate.from_messages(
 
             Choose one route:
 
-            - "document":
-              The question requires information from the uploaded document.
-              Examples:
-              - "Why did Elias use the emergency bell?"
-              - "What happened after the ship arrived?"
-              - "Summarize the document."
-
             - "conversation":
-              The question is about the conversation itself or previous messages.
+              The question is EXPLICITLY about the conversation itself, prior turns,
+              or what was previously said — not about any external topic or the document's content.
               Examples:
               - "What did I ask you before?"
               - "What was my first question?"
               - "What did you just tell me?"
               - "What were we discussing earlier?"
+
+            - "document":
+              Everything else — including questions about the document's content,
+              general knowledge questions, and anything not explicitly about the
+              conversation's own history. This is the DEFAULT route.
+              Examples:
+              - "Why did Elias use the emergency bell?"
+              - "Summarize the document."
+              - "Who is Pawan Kalyan?" (not about our conversation — route to document,
+                 where retrieval will correctly report if it's not covered)
+
+            Rule: only choose "conversation" if the question is unambiguously about
+            the chat history itself. If there is ANY doubt, choose "document" — the
+            document pipeline already handles "not found" gracefully, while the
+            conversation route does not.
 
             Return only the structured output.
             """,
@@ -120,7 +129,7 @@ conversation_prompt = ChatPromptTemplate.from_messages(
               question from the conversation history.
             - Do not invent previous questions, answers, or events.
             - If the requested information is not present in the conversation,
-              say that you cannot find it in the conversation history.
+              say that you cannot answer something that is not in the document or in the Conversation history.
             - Answer directly and concisely.
             """,
         ),
@@ -565,7 +574,10 @@ def route_after_isuse(
 
 
 def no_answer_found(state: State):
-    return {"answer": "I couldn't find this in the document.", "context": ""}
+    return {
+        "answer": "I couldn't find information about that in this document. Feel free to ask something else about its contents.",
+        "context": "",
+    }
 
 
 def get_chatbot():

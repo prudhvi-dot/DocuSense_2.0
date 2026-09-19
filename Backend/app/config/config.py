@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     PINECONE_API_KEY: str
     secret_key: SecretStr
     algorithm: str = "HS256"
-    access_token_expire_minutes: int = 30
+    access_token_expire_minutes: int = 90
     cloudinary_cloud_name: str
     cloudinary_api_key: str
     cloudinary_api_secret: str

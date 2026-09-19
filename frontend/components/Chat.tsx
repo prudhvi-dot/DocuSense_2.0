@@ -1,6 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState, useTransition } from "react";
+import {
+  FormEvent,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Loader2Icon, BotIcon } from "lucide-react";
@@ -18,6 +24,11 @@ type ChatProps = {
   initialMessages: Message[];
 };
 
+type StreamEvent =
+  | { type: "token"; content: string }
+  | { type: "final" }
+  | { type: "error"; message?: string };
+
 const Chat = ({ docId, userName, initialMessages }: ChatProps) => {
   const [isPending, startTransition] = useTransition();
   const [messages, setMessages] = useState<Message[]>(initialMessages);
@@ -27,10 +38,12 @@ const Chat = ({ docId, userName, initialMessages }: ChatProps) => {
   const divRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    divRef.current?.scrollIntoView({ behavior: "smooth" });
+    divRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
   }, [messages]);
 
-  function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
     const question = input.trim();
@@ -40,7 +53,6 @@ const Chat = ({ docId, userName, initialMessages }: ChatProps) => {
     setInput("");
     setError(null);
 
-    // Add user message immediately
     setMessages((prev) => [
       ...prev,
       {
@@ -48,51 +60,120 @@ const Chat = ({ docId, userName, initialMessages }: ChatProps) => {
         message: question,
         created_at: new Date().toISOString(),
       },
+      {
+        role: "ai",
+        message: "",
+        created_at: new Date().toISOString(),
+      },
     ]);
+
+    const aiMessageRef = { current: "" };
+
+    function processLine(line: string) {
+      if (!line.trim()) return;
+
+      const data = JSON.parse(line) as StreamEvent;
+
+      if (data.type === "token") {
+        aiMessageRef.current += data.content;
+
+        setMessages((prev) => {
+          const updated = [...prev];
+
+          updated[updated.length - 1] = {
+            role: "ai",
+            message: aiMessageRef.current,
+            created_at:
+              updated[updated.length - 1]?.created_at ??
+              new Date().toISOString(),
+          };
+
+          return updated;
+        });
+      }
+
+      if (data.type === "final") {
+        console.log("Streaming completed");
+      }
+
+      if (data.type === "error") {
+        throw new Error(
+          data.message || "An error occurred while generating the response."
+        );
+      }
+    }
 
     startTransition(async () => {
       try {
         const res = await fetch(`/api/backend/chats/${docId}`, {
-  method: "PUT",
-  credentials: "include",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({ question }),
-});
+          method: "PUT",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            question,
+          }),
+        });
 
         if (!res.ok) {
-          const errorText = await res.text();
-
-          console.error("Backend error:", errorText);
-
-          throw new Error(
-            `Backend error (${res.status}): ${errorText}`
-          );
+          throw new Error(`Request failed with status ${res.status}`);
         }
 
-        const data = await res.json();
+        if (!res.body) {
+          throw new Error("Response body is empty");
+        }
 
-        // Backend returns:
-        // {
-        //   "message": "complete AI response"
-        // }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
 
-        setMessages((prev) => [
-          ...prev,
-          {
-            role: "ai",
-            message: data.message,
-            created_at: new Date().toISOString(),
-          },
-        ]);
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, {
+            stream: true,
+          });
+
+          const lines = buffer.split("\n");
+
+          buffer = lines.pop() ?? "";
+
+          for (const line of lines) {
+            processLine(line);
+          }
+        }
+
+        buffer += decoder.decode();
+
+        if (buffer.trim()) {
+          for (const line of buffer.split("\n")) {
+            processLine(line);
+          }
+        }
       } catch (error) {
-        console.error(error);
+        console.error("Chat streaming error:", error);
 
-        setError("Something went wrong. Please try again.");
+        setError(
+          error instanceof Error
+            ? error.message
+            : "Something went wrong. Please try again."
+        );
 
-        // Remove the user message if request failed
-        setMessages((prev) => prev.slice(0, -1));
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+
+          if (last?.role === "ai" && !last.message) {
+            return prev.slice(0, -1);
+          }
+
+          return prev;
+        });
       }
     });
   }
@@ -140,21 +221,29 @@ const Chat = ({ docId, userName, initialMessages }: ChatProps) => {
                     : "bg-white text-black rounded-bl-none"
                 }`}
               >
-                <p>{msg.message}</p>
+                {msg.role === "ai" &&
+                idx === messages.length - 1 &&
+                isPending &&
+                !msg.message ? (
+                  <Loader2Icon className="animate-spin h-4 w-4" />
+                ) : (
+                  <p>{msg.message}</p>
+                )}
 
-                <span className="block text-[10px] mt-1 opacity-60 text-right">
-                  {new Date(msg.created_at).toLocaleTimeString("en-US", {
-  hour: "2-digit",
-  minute: "2-digit",
-})}
-                </span>
+                {msg.message && (
+                  <span className="block text-[10px] mt-1 opacity-60 text-right">
+                    {new Date(msg.created_at).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                )}
               </div>
             </div>
           ))
         )}
 
-        {/* Scroll anchor */}
-        <div ref={divRef}></div>
+        <div ref={divRef} />
       </div>
 
       {error && (
@@ -175,16 +264,12 @@ const Chat = ({ docId, userName, initialMessages }: ChatProps) => {
         />
 
         <Button
-          className="mx-1.5"
-          type="submit"
-          disabled={!input.trim() || isPending}
-        >
-          {isPending ? (
-            <Loader2Icon className="animate-spin h-5 w-5" />
-          ) : (
-            "Ask"
-          )}
-        </Button>
+  className="mx-1.5"
+  type="submit"
+  disabled={!input.trim() || isPending}
+>
+  Ask
+</Button>
       </form>
     </div>
   );
