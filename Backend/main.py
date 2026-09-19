@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI()
 
 origins = [
-    "http://localhost:3000",
+    "https://docu-sense-2-0-wowt.vercel.app/",
 ]
 
 app.add_middleware(
