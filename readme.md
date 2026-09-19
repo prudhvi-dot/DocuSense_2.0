@@ -1,74 +1,131 @@
 # DocuSense
 
-A document-grounded chat application — upload a PDF, ask questions about it, and get answers that are strictly scoped to that document's content. Built to explore what a genuinely *safe* and *correct* RAG system looks like, not just a working demo.
+Chat with a PDF — but every answer is verified against the document before it's shown, and if the document doesn't cover the question, the system says so instead of guessing.
 
-## What it does
+**[Live demo](#)** · [Architecture](#architecture)
 
-- Upload a PDF, get a split-pane view: the document on one side, a live chat on the other.
-- Ask questions and get streamed, grounded answers — with citations traceable back to the document.
-- Ask something the document doesn't cover, and the system says so clearly instead of guessing.
-- Ask about the conversation itself ("what did I ask you before?") and it correctly answers from chat history instead of re-searching the document.
-- Full auth, per-user document isolation, and persistent multi-turn memory.
+---
 
-## Why this exists
+## The problem this solves
 
-Most "chat with your PDF" tutorials wire up a single retrieval pass and call it done. This project asks a harder question: **what happens when retrieval is weak, when the model wants to answer from outside the document, or when a generated answer isn't actually grounded in what was retrieved?** Every one of those failure modes is handled explicitly here, not left to hope.
+Most "chat with your PDF" projects wire up a single retrieval pass and call it done — the model can still answer from its own training data, or fall back to a live web search when retrieval comes up short. Either way, the user has no way to know whether an answer actually came from their document.
 
-![LangGraph pipeline](./docs/chat.png)
+**This project is built around one constraint: every answer must come only from the uploaded document, or the system explicitly says it doesn't know.** Every retry path, every fallback, and every design decision below exists to enforce that, not just to make a chatbot work.
+
+## Features
+
+- Upload a PDF, get a split-pane view — document on one side, live chat on the other
+- Streamed answers, verified for groundedness and usefulness before being shown
+- Explicit "not found" responses when a question isn't covered — no hallucinated fallback
+- Conversation-aware follow-ups ("what did I ask you before?") answered from chat history, not re-searched against the document
+- JWT authentication with per-user authorization and persistent multi-turn memory across sessions
 
 ## Architecture
 
-### The RAG pipeline — merged Corrective RAG + Self-RAG
+### Pipeline: a modified hybrid of Corrective RAG and Self-RAG
 
-The core retrieval pipeline combines two established RAG patterns into one LangGraph graph, deliberately scoped so it can never answer from outside the uploaded document:
+```
+retrieve → grade chunks → [weak? rewrite query, retry] → refine → generate
+    → check groundedness → [ungrounded? revise, retry]
+    → check usefulness → [not useful? rewrite query, retry]
+    → return answer
+```
 
-- **Corrective RAG** — per-chunk LLM grading of retrieved content, with automatic query rewriting and re-retrieval if the initial results are too weak.
-- **Self-RAG** — post-generation reflection: a groundedness check (is the answer actually supported by the retrieved context?) with an automatic revision loop, followed by a usefulness check (does the answer actually address the question?).
+| From | Kept | Removed / changed |
+|---|---|---|
+| **Corrective RAG** | Per-chunk relevance grading; query rewriting on weak retrieval | Web search fallback → removed entirely; three-tier verdict (correct/ambiguous/incorrect) → collapsed to a simpler pass/fail threshold after testing showed the middle tier added retries without adding value |
+| **Self-RAG** | Groundedness check + revision loop; usefulness check + retry loop | Direct generation from the model's own knowledge (when retrieval was skipped) → removed entirely |
 
-**Deliberately removed from both source patterns:** web search (Corrective RAG's typical fallback) and direct generation from the model's own parametric knowledge (Self-RAG's typical fallback). Both were replaced with a single explicit `no_answer_found` exit — the system says "I couldn't find this in the document" rather than ever reaching outside it. This was a conscious design decision, not an oversight: a document Q&A tool that quietly answers from general knowledge is misleading by default.
+**Why both fallbacks were removed:** this is the most deliberate decision in the project. Corrective RAG's web-search fallback and Self-RAG's direct-generation fallback both exist to let the system answer even when the document doesn't cover something. For a document Q&A tool, that's exactly the wrong behavior. Both were replaced with a single explicit exit — `no_answer_found` — which tells the user plainly that the document doesn't cover their question.
 
-Retry loops are bounded and tracked with two independent counters — one for weak retrieval, one for answers judged not useful — so the system can self-correct without ever looping indefinitely.
+![Pipeline graph](./docs/architecture.png)
+*Auto-generated from the compiled LangGraph, via `draw_mermaid_png()`.*
 
-![LangGraph pipeline](./docs/architecture.png)
+### From filtered refinement to straight reformatting
+
+An earlier version of this step used a second LLM call to judge each decomposed sentence individually — keeping only sentences directly relevant to the question before passing context to generation. In testing, this backfired for broad questions: for a request like "summarize the document," no single sentence can "directly answer" a summarization request in isolation, so the filter was rejecting every sentence and leaving generation with empty context.
+
+Rather than patch around that with a fallback (generate a workaround for a workaround), the filtering step was removed. `refine` now decomposes graded, relevant chunks into individual sentences and rejoins them into a clean context string — no additional LLM call, no risk of over-filtering, and one fewer place where the pipeline could silently discard content it shouldn't have. The sentence decomposition still normalizes formatting from the raw PDF extraction, but the relevance judgment now rests entirely on the earlier chunk-level grading step, not a second, finer-grained pass.
+
+### How the pipeline decides
+
+| Decision point | Condition | Outcome |
+|---|---|---|
+| Route (document vs. conversation) | Is the question explicitly about prior chat turns? | If yes → answered from conversation history. Everything else — including anything ambiguous — defaults to the document pipeline, since it already handles "not found" gracefully and the conversation path does not. |
+| Retrieval grading | Do *all* retrieved chunks score below the relevance threshold? | If yes → query is rewritten and retrieval retries (bounded); otherwise the graded-good chunks proceed to refinement. |
+| Refinement | Chunks that passed grading are decomposed into sentences and rejoined into context | No further filtering happens here — relevance judgment rests entirely on the earlier chunk-level grading step, not a second finer-grained pass (see below for why). |
+| Groundedness | Is the generated answer fully supported by the retrieved context? | If not, and retries remain → answer is revised (forced into a strict quote-only format) and re-checked. If retries are exhausted and the answer is completely unsupported → routed to `no_answer_found` rather than shown. A partially-supported answer after exhausted retries is still shown, since it's judged more useful than a hard refusal for a minor phrasing issue. |
+| Usefulness | Does the (grounded) answer actually address the question asked? | If not, and retries remain → query is rewritten and retrieval retries. If retries are exhausted → `no_answer_found`. |
+| Retry budgets | Two independent counters — one for weak retrieval, one for "not useful" answers | Each is bounded separately, so the system can self-correct without either failure mode being able to loop indefinitely. |
 
 ### Why a fixed graph instead of a tool-calling agent
 
-An alternative design would expose retrieval as a tool to a general-purpose agent and let it decide when/how to search. That was considered and deliberately not used here: this task has a well-defined verification pipeline (retrieve → grade → generate → check → check again), and a fixed graph gives bounded, predictable, fully testable behavior — every possible path through the system is enumerable. The trade-off is real: a tool-calling agent could adapt its strategy for genuinely novel query shapes (e.g. deliberately cross-referencing two different sections with separate searches) in a way this graph can't. For the realistic distribution of document Q&A queries, the fixed graph's predictability was judged more valuable than that flexibility.
+An alternative design would expose retrieval as a tool to a general-purpose agent and let the model decide when and how to search. This was considered and deliberately not used: this task has a well-defined verification pipeline, and a fixed graph gives bounded, enumerable, fully testable behavior. The trade-off is real — an agent could adapt its strategy for genuinely novel query shapes (e.g. issuing separate searches to cross-reference two sections) in a way this graph can't. For the realistic distribution of document Q&A queries, predictability was judged more valuable than that flexibility.
 
 ### Streaming
 
-Answers stream token-by-token from the `generate` node as they're produced. Because the pipeline can revise an answer after initial generation (if the groundedness check fails), the frontend streams the first draft live and then reconciles with an authoritative final event once the graph has fully finished — so a rare revision shows a clean correction rather than garbled, concatenated text. Paths that produce no LLM output at all (like `no_answer_found`, which returns a static message) are fake-streamed word-by-word so the UI never shows a jarring blank response.
+Answers stream token-by-token as newline-delimited JSON (NDJSON) as they're generated. Because the pipeline can revise an answer after initial generation, the frontend streams the first draft live and reconciles with an authoritative final event once the graph has fully finished — a rare revision shows as a clean correction, not concatenated/garbled text. Paths with no LLM output (`no_answer_found`, which returns a static message) are fake-streamed word-by-word so the UI never shows a blank response.
 
-### Per-document isolation
+## Security & isolation
 
-Each document's chunks live in their own Pinecone namespace (keyed by `doc_id`), so retrieval is structurally isolated per document — no cross-document leakage is possible, and no metadata filtering overhead is needed at query time. Authorization (which user can access which document) is enforced separately, at the API layer, before any retrieval call is made.
+- **Auth:** JWT in an `httpOnly` cookie, inaccessible to client-side JavaScript — so if an XSS vulnerability were ever present elsewhere in the app, the token itself couldn't be read or exfiltrated through it. This doesn't prevent XSS from occurring; it limits what a successful one could steal.
+- **Per-user authorization:** every document/chat route checks document ownership before doing any work — a request for a document that doesn't exist returns 404; a request for a document that exists but belongs to another user returns 403.
+- **Per-document vector isolation:** each document's chunks live in their own Pinecone namespace, keyed by `doc_id`. Retrieval is structurally scoped to one document — there's no cross-document leakage to filter out, because the search space never contains another document's data in the first place.
+- **Same-origin cookie handling:** a Next.js rewrite proxy makes frontend and backend appear same-origin to the browser, so cookies work correctly across both Server and Client Components without cross-domain scoping issues.
 
-### Auth
+## Request lifecycle — asking a question
 
-Cookie-based JWT auth (`httpOnly`, so client-side JS can never read or tamper with the token). A Next.js rewrite proxy makes the frontend and backend appear same-origin to the browser, which lets cookies work correctly across both Server and Client Components without cross-domain cookie-scoping issues. Server Components read cookies directly and forward them manually on outbound backend requests (no browser involved in that hop); Client Components rely on the browser's normal cookie behavior through the proxy.
+1. User submits a question in the chat panel (Client Component).
+2. Request hits `PUT /api/chats/{doc_id}/stream`, authenticated via the forwarded cookie.
+3. Backend verifies the document exists and the requesting user owns it (404 / 403 as above).
+4. The question enters the LangGraph pipeline: retrieve → grade → refine → generate, streaming tokens back as NDJSON as soon as the first draft is produced.
+5. After generation, the pipeline runs its groundedness and usefulness checks in sequence; if either fails, it revises or retries — the frontend reconciles the displayed answer to match once the graph fully completes.
+6. The final human/AI message pair is persisted to Postgres (`Message` table); the frontend receives a `final` event confirming the saved, authoritative answer.
 
-### Observability
+## Project structure
 
-Every graph execution is traced end-to-end via LangSmith — each node's inputs, outputs, and latency are individually inspectable, not just the final answer. This was genuinely useful during development for catching real bugs (e.g. discovering that a broad "summarize the document" query was being incorrectly filtered down to zero context by the sentence-level relevance filter, which led to the refine fallback described above) and for understanding the pipeline's actual latency breakdown per node.
+```
+Backend/
+  app/
+    auth/            JWT auth, current-user dependency
+    config/           settings, database, vectorstore config
+    models/            SQLAlchemy models
+    RAG/              LangGraph pipeline, ingestion
+    routers/         FastAPI routes (users, documents, chats)
+    schemas.py         Pydantic request/response models
+  alembic/            migrations
 
-![Traced run showing full pipeline execution](./docs/trace-example.png)
+frontend/
+  app/                 Next.js App Router pages
+  components/       Chat, PdfView, Header, shadcn/ui primitives
+  lib/                 shared config (BACKEND_URL, etc.)
+  proxy.ts            route protection (Next.js 16 middleware)
+```
 
-### Data model
+## Observability
+
+Every graph execution is traced end-to-end via LangSmith — each node's inputs, outputs, and latency are individually inspectable. This was genuinely useful during development: it's how the "summarize the document" refinement bug described above was actually caught and diagnosed.
+
+![Traced run](./docs/trace-example.png)
+*One real traced run, shown for illustration — not a formal benchmark. Latency varies with document size, query complexity, and how many retry/revision loops a given question triggers.*
+
+## Data model
 
 `User` → `Document` (one-to-many) → `Chat` (one-to-one) → `Message` (one-to-many). `Chat` is modeled as its own entity — distinct from `Document` — specifically so multiple chat sessions per document is a schema-level possibility later, even though the current version auto-creates one chat per upload.
 
 ## Tech stack
 
-- **Backend:** FastAPI, SQLAlchemy (2.0 typed style), Alembic migrations, PostgreSQL (NeonDB)
-- **AI/RAG:** LangGraph, LangChain, OpenAI, Pinecone (vector store), LangGraph's Postgres checkpointer (conversation memory)
-- **Frontend:** Next.js (App Router), React Server Components, Tailwind, shadcn/ui
-- **Storage:** Cloudinary (PDF file storage)
-- **Auth:** JWT, httpOnly cookies
+**Backend:** FastAPI · SQLAlchemy 2.0 · Alembic · PostgreSQL (NeonDB)
+**AI/RAG:** LangGraph · LangChain · OpenAI · Pinecone · LangGraph Postgres checkpointer
+**Frontend:** Next.js (App Router) · React Server Components · Tailwind · shadcn/ui
+**Storage:** Cloudinary
+**Auth:** JWT, httpOnly cookies
 
 ## Known limitations / future improvements
 
-- The current graph issues one retrieval query per pass. A natural extension would let the system issue multiple sub-queries for genuinely multi-angle questions (e.g. "compare how the introduction and conclusion describe X").
-- Chat history is stored twice — once in the application's own `Message` table (source of truth for the frontend) and once implicitly via LangGraph's checkpointer (used for the graph's own short-term reasoning). This is intentional, not redundant, but worth noting.
+- The graph issues one retrieval query per pass; a natural extension would let it issue multiple sub-queries for genuinely multi-angle questions (e.g. comparing two sections of a document).
+- No inline source citations in the chat UI yet — answers are grounded and verified internally, but the specific supporting passage isn't currently surfaced to the user.
+- Chat history is stored twice: once in the app's own `Message` table (source of truth for the UI) and once via LangGraph's checkpointer (used for the graph's own short-term reasoning). Intentional, not redundant, but worth knowing.
 - No rate limiting or usage quotas yet.
 
 ## Setup
@@ -90,16 +147,11 @@ npm run dev
 
 | Variable | Purpose |
 |---|---|
-| `OPENAI_API_KEY` | Powers every LLM call in the pipeline — routing, grading, refinement, generation, groundedness/usefulness checks |
-| `DATABASE_URL` | PostgreSQL connection string (NeonDB) — used by both SQLAlchemy and LangGraph's Postgres checkpointer for conversation memory |
+| `OPENAI_API_KEY` | Powers every LLM call — routing, grading, refinement, generation, groundedness/usefulness checks |
+| `DATABASE_URL` | PostgreSQL connection string (NeonDB) — used by SQLAlchemy and LangGraph's checkpointer |
 | `PINECONE_API_KEY` | Vector store for document chunk embeddings and retrieval |
-| `SECRET_KEY` | Signs and verifies JWT access tokens for auth |
-| `CLOUDINARY_CLOUD_NAME` | Cloudinary account identifier, for storing uploaded PDFs |
-| `CLOUDINARY_API_KEY` | Cloudinary API authentication |
-| `CLOUDINARY_API_SECRET` | Cloudinary API authentication (kept server-side only, never exposed to the frontend) |
-| `LANGCHAIN_TRACING_V2` | Enables LangSmith tracing — set to `true` to get full run traces of every graph execution (used to generate the architecture trace shown above) |
-| `LANGCHAIN_ENDPOINT` | LangSmith's API endpoint |
-| `LANGCHAIN_API_KEY` | LangSmith authentication |
-| `LANGCHAIN_PROJECT` | Groups traces under a named project in the LangSmith dashboard |
+| `SECRET_KEY` | Signs and verifies JWT access tokens |
+| `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | PDF file storage (server-side only, never exposed to the frontend) |
+| `LANGCHAIN_TRACING_V2` / `LANGCHAIN_ENDPOINT` / `LANGCHAIN_API_KEY` / `LANGCHAIN_PROJECT` | LangSmith tracing, used to generate the trace shown above |
 
-**Note:** `TAVILY_API_KEY` was used during early development (Corrective RAG's original web-search fallback) but is no longer needed — web search was deliberately removed from the final pipeline (see *Architecture* above), so this variable can be omitted.
+**Note:** an earlier version of this pipeline used Tavily for web search (the original Corrective RAG fallback). It was removed for the reasons described above; a `TAVILY_API_KEY` variable is not needed.

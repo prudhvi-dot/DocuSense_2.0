@@ -35,7 +35,6 @@ class State(TypedDict):
     reason: str
 
     strips: list[str]
-    kept_strips: list[str]
     refined_context: str
 
     answer: str
@@ -330,41 +329,6 @@ def decompose_to_sentences(text: str):
     text = re.sub(r"\s+", " ", text).strip()
     sentences = re.split(r"(?<=[.!?])\s+", text)
     return [s.strip() for s in sentences if len(s.strip()) > 20]
-
-
-class KeepOrDrop(BaseModel):
-    keep: bool
-
-
-filter_prompt = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            """You are a relevance filter for a document-grounded RAG system.
-
-            Decide whether the sentence should be kept as part of the context
-            used to answer the question.
-
-            Return keep=true if the sentence:
-            - directly answers the question, OR
-            - provides necessary context, evidence, cause, explanation, or consequence
-              needed to answer the question.
-
-            Keep sentences that are useful when combined with other sentences
-            from the same document.
-
-            Do NOT require the sentence to answer the question by itself.
-
-            Return keep=false only when the sentence is clearly unrelated
-            to answering the question.
-
-            Output JSON only.""",
-        ),
-        ("human", "Question: {question}\n\nSentence:\n{sentence}"),
-    ]
-)
-
-filter_chain = filter_prompt | llm.with_structured_output(KeepOrDrop)
 
 
 def refine(state: State):
