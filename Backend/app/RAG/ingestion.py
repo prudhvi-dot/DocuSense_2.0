@@ -42,9 +42,9 @@ def split_docs(docs):
 
 
 @traceable()
-def add_to_vector_store(chunks, user_id):
+def add_to_vector_store(chunks, doc_id):
     vector_store = get_vectorstore()
-    vector_store.add_documents(chunks, namespace=user_id)
+    vector_store.add_documents(chunks, namespace=doc_id)
 
 
 def ingest(file, doc_id: str, user_id: str):
@@ -57,11 +57,11 @@ def ingest(file, doc_id: str, user_id: str):
     chunks = [
         Document(
             page_content=chunk.page_content,
-            metadata={**chunk.metadata, "doc_id": doc_id},
+            # metadata={**chunk.metadata, "doc_id": doc_id},
             id=f"{doc_id}_{i}",
         )
         for i, chunk in enumerate(chunks)
     ]
 
-    add_to_vector_store(chunks, user_id)
+    add_to_vector_store(chunks, doc_id)
     return {"status": "success", "chunks_added": len(chunks)}

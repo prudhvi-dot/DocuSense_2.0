@@ -2,6 +2,7 @@ import PlaceholderDocument from "./PlaceholderDocument";
 import Document from "./Document";
 import { cookies } from "next/headers";
 import DocumentsList from "./DocumentsList";
+import { BACKEND_URL } from "@/lib/config";
 
 async function getAllDocuments() {
   const start = performance.now();
@@ -9,7 +10,7 @@ async function getAllDocuments() {
   const cookieStore = await cookies();
 
   const res = await fetch(
-    "http://127.0.0.1:8000/api/documents/all",
+    `${BACKEND_URL}/api/documents/all`,
     {
       headers: {
         Cookie: cookieStore.toString(),

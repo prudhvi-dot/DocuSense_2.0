@@ -1,11 +1,12 @@
 // components/Header.tsx
 import { cookies } from "next/headers";
 import { LogoutButton } from "./LogoutButton";
+import { BACKEND_URL } from "@/lib/config";
 import Link from "next/link";
 
 async function getCurrentUser() {
   const cookieStore = await cookies();
-  const res = await fetch("http://127.0.0.1:8000/api/users/me", {
+  const res = await fetch(`${BACKEND_URL}/api/users/me`, {
     headers: { Cookie: cookieStore.toString() },
     cache: "no-store",
   });

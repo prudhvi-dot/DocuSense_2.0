@@ -200,8 +200,8 @@ def retrieve(state: State, config: RunnableConfig):
 
     retriever = vector_store.as_retriever(
         search_kwargs={
-            "namespace": user_id,
-            "filter": {"doc_id": doc_id},
+            "namespace": doc_id,
+            # "filter": {"doc_id": doc_id},
             "k": 5,
         }
     )

@@ -2,8 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import PdfView from "@/components/PdfView";
 import Chat from "@/components/Chat";
-
-const BACKEND_URL = "http://127.0.0.1:8000";
+import { BACKEND_URL } from "@/lib/config";
 
 async function getDocument(doc_id: string) {
   const cookieStore = await cookies();
