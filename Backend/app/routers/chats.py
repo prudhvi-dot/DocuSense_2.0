@@ -37,12 +37,6 @@ def get_all_messages(
     return {"messages": messages}
 
 
-# import json
-
-# from fastapi.responses import StreamingResponse
-# from langchain_core.messages import HumanMessage
-
-
 @router.put("/{doc_id}")
 def chat(
     chat: ChatMessageRequest,
@@ -84,7 +78,6 @@ def chat(
                 config={
                     "configurable": {
                         "thread_id": chat_id,
-                        "user_id": current_user.id,
                         "doc_id": doc_id,
                     }
                 },
@@ -118,7 +111,6 @@ def chat(
                 {
                     "configurable": {
                         "thread_id": chat_id,
-                        "user_id": current_user.id,
                         "doc_id": doc_id,
                     }
                 }

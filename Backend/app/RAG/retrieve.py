@@ -163,59 +163,22 @@ def conversation_generate(state: State):
     }
 
 
-# def retrieve(state: State, config: RunnableConfig):
-#     user_id = config["configurable"]["user_id"]
-#     doc_id = config["configurable"]["doc_id"]
-
-#     vector_store = get_vectorstore()
-
-#     q = state.get("retrieval_query") or state["question"]
-
-#     retriever = vector_store.as_retriever(
-#         search_kwargs={
-#             "namespace": user_id,
-#             "filter": {"doc_id": doc_id},
-#             "k": 5,
-#         }
-#     )
-
-#     docs = retriever.invoke(q)
-
-#     return {"docs": docs}
-
-import time
-
-
 def retrieve(state: State, config: RunnableConfig):
-    start = time.perf_counter()
 
-    user_id = config["configurable"]["user_id"]
     doc_id = config["configurable"]["doc_id"]
 
     vector_store = get_vectorstore()
-
-    t1 = time.perf_counter()
 
     q = state.get("retrieval_query") or state["question"]
 
     retriever = vector_store.as_retriever(
         search_kwargs={
             "namespace": doc_id,
-            # "filter": {"doc_id": doc_id},
             "k": 5,
         }
     )
 
-    t2 = time.perf_counter()
-
     docs = retriever.invoke(q)
-
-    t3 = time.perf_counter()
-
-    print(f"get_vectorstore: {t1 - start:.3f}s")
-    print(f"retriever setup: {t2 - t1:.3f}s")
-    print(f"retriever.invoke: {t3 - t2:.3f}s")
-    print(f"TOTAL retrieve: {t3 - start:.3f}s")
 
     return {"docs": docs}
 
@@ -657,10 +620,6 @@ def get_chatbot():
     g.add_edge("no_answer_found", END)
 
     return g.compile(checkpointer=checkpointer)
-    # png = app.get_graph().draw_mermaid_png()
-
-    # with open("graph2.png", "wb") as f:
-    #     f.write(png)
 
 
 chatbot = get_chatbot()

@@ -1,7 +1,7 @@
 import os
 import tempfile
 
-from app.RAG.config import get_pinecone_index, get_vectorstore
+from app.RAG.config import get_vectorstore
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
@@ -9,15 +9,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langsmith import traceable
 
 load_dotenv()
-
-
-def document_exists(doc_id: str, user_id: str):
-    index = get_pinecone_index()
-    result = index.fetch(
-        ids=[f"{doc_id}_0"],
-        namespace=user_id,
-    )
-    return len(result.vectors) > 0
 
 
 @traceable()
@@ -47,9 +38,7 @@ def add_to_vector_store(chunks, doc_id):
     vector_store.add_documents(chunks, namespace=doc_id)
 
 
-def ingest(file, doc_id: str, user_id: str):
-    if document_exists(doc_id, user_id):
-        return
+def ingest(file, doc_id: str):
 
     docs = load_documents(file)
     chunks = split_docs(docs)
@@ -57,7 +46,6 @@ def ingest(file, doc_id: str, user_id: str):
     chunks = [
         Document(
             page_content=chunk.page_content,
-            # metadata={**chunk.metadata, "doc_id": doc_id},
             id=f"{doc_id}_{i}",
         )
         for i, chunk in enumerate(chunks)

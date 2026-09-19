@@ -1,10 +1,10 @@
 import uuid
 from typing import Annotated
+
 import cloudinary.uploader
 from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from app.auth import (
     CurrentUser,
@@ -12,9 +12,9 @@ from app.auth import (
 from app.config.config import settings
 from app.config.database import get_db
 from app.models import models
+from app.RAG.config import get_pinecone_index
 from app.RAG.ingestion import ingest
 from app.schemas import DocumentDetailResponse, DocumentUploadResponse
-from app.RAG.config import get_pinecone_index
 
 router = APIRouter()
 
@@ -38,7 +38,7 @@ def upload_document(
     file_bytes = file.file.read()
 
     doc_id = str(uuid.uuid4())
-    ingest(file_bytes, doc_id, current_user.id)
+    ingest(file_bytes, doc_id)
 
     upload_result = cloudinary.uploader.upload(
         file_bytes,
@@ -84,14 +84,10 @@ def delete_document(
             detail="Document not found",
         )
 
-    print("at cloudinary")
-
     cloudinary.uploader.destroy(
         document.public_id,
         resource_type="raw",
     )
-
-    print("At pinecone")
 
     index = get_pinecone_index()
     index.delete(
@@ -103,9 +99,6 @@ def delete_document(
     db.commit()
 
     return {"message": "Document deleted successfully"}
-
-
-import time
 
 
 @router.get(
