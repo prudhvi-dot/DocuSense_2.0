@@ -80,7 +80,7 @@ export default function Home() {
         <div className="relative overflow-hidden pt-16">
           <div className="mx-auto max-w-7xl px-6 lg:px-8">
             <Image
-              src="/Hero.png"
+              src="/New_Hero.png"
               alt="App Screenshot"
               width={2432}
               height={1442}
