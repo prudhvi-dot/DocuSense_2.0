@@ -2,7 +2,7 @@
 
 Chat with a PDF — but every answer is verified against the document before it's shown, and if the document doesn't cover the question, the system says so instead of guessing.
 
-**[Live demo](#)** · [Architecture](#architecture)
+**[Live demo](https://docu-sense-2-0-wowt.vercel.app/)** · [Architecture](#architecture)
 
 ---
 
